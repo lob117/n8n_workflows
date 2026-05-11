@@ -1,0 +1,430 @@
+{
+  "name": "work_flow_metadata",
+  "nodes": [
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        528,
+        -256
+      ],
+      "id": "d47669a6-9060-4afd-bc1a-0d9e49cf4d7f",
+      "name": "When clicking ‘Execute workflow’"
+    },
+    {
+      "parameters": {
+        "command": "find /demo-data/data_pdf -type f -name \"*.pdf\""
+      },
+      "type": "n8n-nodes-base.executeCommand",
+      "typeVersion": 1,
+      "position": [
+        704,
+        -256
+      ],
+      "id": "2a70922b-abf7-40f0-8b94-c5c3c94d9534",
+      "name": "Execute Command"
+    },
+    {
+      "parameters": {
+        "jsCode": "const text = $input.first().json.text\nconst maxSize = 10000;   // 10k caracteres\n\n\nlet chunk = \"\";\n\n// Si no hay texto, devolver un chunk con \"imagen\"\nif (text.trim().length === 0) {\n  chunk = `Title: ${title}\\n\\nimagen`;\n} else {\n  // Recortar el texto a máximo 10k caracteres\n  const trimmedText = text.slice(0, maxSize);\n  chunk =trimmedText\n}\n\n// Devolver un solo chunk\nreturn [{ json: { chunk } }];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2448,
+        -176
+      ],
+      "id": "4dbb2bee-561a-4321-981f-eba96d41a8bf",
+      "name": "Code in JavaScript2"
+    },
+    {
+      "parameters": {
+        "jsCode": "const text = $json[\"stdout\"] || \"\";\n\n// Dividir por saltos de línea y limpiar espacios vacíos\nconst lines = text\n  .split('\\n')\n  .map(line => line.trim())\n  .filter(line => line !== \"\");\n\n// Convertir cada línea en un chunk\nconst chunks = lines.map(line => ({ chunk: line }));\n\n// Retornar en formato que n8n espera\nreturn chunks.map(c => ({ json: c }));\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        848,
+        -256
+      ],
+      "id": "08c75d15-bfa7-4596-93c1-2f4d83d33be0",
+      "name": "Code in JavaScript1"
+    },
+    {
+      "parameters": {
+        "operation": "pdf",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.extractFromFile",
+      "typeVersion": 1,
+      "position": [
+        2240,
+        -176
+      ],
+      "id": "e4a454ab-2fb2-4446-9040-b0176ec1d1d5",
+      "name": "Extract from File1"
+    },
+    {
+      "parameters": {
+        "fileSelector": "={{ $json.path }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.readWriteFile",
+      "typeVersion": 1,
+      "position": [
+        2032,
+        -176
+      ],
+      "id": "a47d1812-eaa8-4417-85e7-04dd76a2b576",
+      "name": "Read/Write Files from Disk"
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=Eres un modelo experto en extraer información estructurada. \nTu tarea es leer el texto proporcionado y generar **un JSON limpio y válido** no puede tener uni code, todo en una sola línea, sin Markdown y sin explicaciones adicionales,  válido con los siguientes campos:\n{\n  \"title\": \"\",\n  \"abstract\": \"\",\n  \"language\": \"spa\",\n  \"supplemental_information\": \"\",\n  \"constraints_other\": \"\",\n  \"attribution\": \"\"\n}\neste es el texto que debes procesar {{ $('Code in JavaScript2').item.json.chunk }}\nINSTRUCCIONES ESTRICTAS:\n- Devuelve exclusivamente un JSON válido.\n- No incluyas explicaciones fuera del JSON.\n- No inventes datos: si algo no aparece en el texto, escribe \"\" (vacío).\n- \"title\": busca en el texto lo siguiente texto \"numero del expediente\" este es un codigo que debe ser de la forma \"letreas del como cgj-numeros-años\" .\n- \"abstract\": genera un resumen corto (máximo 400 CARACTERES DONDE SE HABLE NOMBRE DEL PROYECTO, LA UBICACION DEL PROYECTO COMO CORREGIMIENTO Y VEREDA DONDE SE DESAROLLA EL PROYECTO AL FINALIZAR UN RESUMEN DE LOS PERMISOS OTORGADOS Y LA DESCRIPCION DE LA RESOLUCION).\n- \"language\": siempre \"spa\" a menos que el texto esté claramente en otro idioma.\n- \"supplemental_information\": dejar vacio\n- \"constraints_other\": identifica si la licencia esta activa o no y la fecha y no añadas ningun objeto mas esa inforamcion queda en un solo texto\n- \"attribution\": describe el tipo de documento (ej: “PMA_MINERA\",\"PMA_DIFERENTE_MINERA\",\"CDA\",\"EMISIONES_ATMOSFERICAS\",\"LICENCIA_AMBIENTAL_MINERA\",\"LICENCIA_AMBIENTAL_NO_MINERA\",\"LICENCIA_AMBIENTAL_TEMPORAL\",\"PALMICULTORES\")\n\n\nDEspues del proceso valida si es un json valido que tenga todas las comas y las \"{}\"",
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 2.2,
+      "position": [
+        2784,
+        -176
+      ],
+      "id": "4933d8c9-0879-44ea-9c20-c651d3359cb6",
+      "name": "AI Agent1"
+    },
+    {
+      "parameters": {
+        "jsCode": "// 1️⃣ Obtener el string del output del primer elemento\nconst jsonString = $input.first().json.output || \"\"; \n// eliminar json texto\nconst indexPrimeraLlave = jsonString.indexOf('{');\nconst lastBrace = jsonString.lastIndexOf('}');\nlet json_edit = jsonString.slice(indexPrimeraLlave);\nif (lastBrace>0){\n  json_edit = jsonString.slice(indexPrimeraLlave, lastBrace + 1).trim();\n}\n// completar json\nlet clean=json_edit.trim();\nlet last3 = clean.slice(-3);\n// Si los últimos caracteres no terminan correctamente con '}' se corrige\nif (!last3.includes(\"}\")) {\n  // Si termina con /\" o /' se agrega la llave después\n  if (clean.endsWith('/\"') || clean.endsWith(\"/'\")) {\n    clean = clean + \"}\";\n  } else {\n    // Si termina con otra cosa incompleta, simplemente añadir la llave\n    clean = clean + \"}\";\n  }\n}\n//  Parsear el string a JSON \nconst data = JSON.parse(clean); \n//  Obtener y limpiar el título \nlet title = $('Code in JavaScript3').item.json.result ;\ndata.title=title;\n// Devolver valores corregidos \nreturn { json: { fileTitle: title, fileData: data } };\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3056,
+        -176
+      ],
+      "id": "aa6754b5-c9fc-40a5-81d9-a04f8a709994",
+      "name": "Code in JavaScript5"
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        1056,
+        -256
+      ],
+      "id": "25ec1e3f-bc83-4a48-88c2-233de2fcb6a1",
+      "name": "Loop Over Items1"
+    },
+    {
+      "parameters": {
+        "inputSource": "passthrough"
+      },
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        1632,
+        -176
+      ],
+      "id": "77f111a0-1009-4f06-9fb6-00f20cb37c0d",
+      "name": "When Executed by Another Workflow"
+    },
+    {
+      "parameters": {
+        "operation": "toJson",
+        "options": {
+          "fileName": "={{ $json.title }}"
+        }
+      },
+      "type": "n8n-nodes-base.convertToFile",
+      "typeVersion": 1.1,
+      "position": [
+        3216,
+        -176
+      ],
+      "id": "158845b2-ddfd-4907-8fde-c6d19694805a",
+      "name": "Convert to File1"
+    },
+    {
+      "parameters": {
+        "operation": "write",
+        "fileName": "=/demo-data/{{ $('Code in JavaScript5').first().json.fileTitle }}.json",
+        "dataPropertyName": "=data",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.readWriteFile",
+      "typeVersion": 1,
+      "position": [
+        3376,
+        -176
+      ],
+      "id": "a3ad7b08-7340-45fb-9b16-1566d789ed57",
+      "name": "Read/Write Files from Disk2"
+    },
+    {
+      "parameters": {
+        "model": "llama3.1:8b-instruct-q6_K",
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatOllama",
+      "typeVersion": 1,
+      "position": [
+        2832,
+        48
+      ],
+      "id": "af06513e-f5dd-461c-9b3c-0ffec79212ca",
+      "name": "Ollama Chat Model",
+      "credentials": {
+        "ollamaApi": {
+          "id": "xHuYe0MDGOs9IpBW",
+          "name": "Local Ollama service"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "EunhwBT4sdKvtgZF",
+          "mode": "list",
+          "cachedResultUrl": "/workflow/EunhwBT4sdKvtgZF",
+          "cachedResultName": "work_flow_metadata"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {},
+          "matchingColumns": [],
+          "schema": [],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        },
+        "mode": "each",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.3,
+      "position": [
+        1248,
+        -240
+      ],
+      "id": "f1ef8201-af2f-4a68-97ed-a5b2b2815ae4",
+      "name": "Call 'work_flow_metadata'"
+    },
+    {
+      "parameters": {
+        "jsCode": "const path =$input.first().json.chunk\nreturn[{ json: { path } }];\n\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1840,
+        -176
+      ],
+      "id": "bcdcc819-302b-49cc-b3ac-7a7367dc4b5c",
+      "name": "Code in JavaScript"
+    },
+    {
+      "parameters": {
+        "jsCode": "const edit_path= $('Code in JavaScript').item.json.path \n\n\n// Obtener solo el nombre del archivo\nconst nombreArchivo = edit_path.split(\"/\").pop();   // \"021-1998.pdf\"\n\n// Eliminar la extensión .pdf\nconst soloNombre = nombreArchivo.replace(\".pdf\", \"\");  // \"021-1998\"\n\nreturn {\n  json: {\n    result: soloNombre\n  }\n};\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2592,
+        -176
+      ],
+      "id": "c80a2db4-0cd9-43fd-99bd-80bb52777a9e",
+      "name": "Code in JavaScript3"
+    }
+  ],
+  "pinData": {
+    "When Executed by Another Workflow": [
+      {
+        "json": {}
+      }
+    ]
+  },
+  "connections": {
+    "When clicking ‘Execute workflow’": {
+      "main": [
+        [
+          {
+            "node": "Execute Command",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Execute Command": {
+      "main": [
+        [
+          {
+            "node": "Code in JavaScript1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code in JavaScript2": {
+      "main": [
+        [
+          {
+            "node": "Code in JavaScript3",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code in JavaScript1": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Items1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract from File1": {
+      "main": [
+        [
+          {
+            "node": "Code in JavaScript2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read/Write Files from Disk": {
+      "main": [
+        [
+          {
+            "node": "Extract from File1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Agent1": {
+      "main": [
+        [
+          {
+            "node": "Code in JavaScript5",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code in JavaScript5": {
+      "main": [
+        [
+          {
+            "node": "Convert to File1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Loop Over Items1": {
+      "main": [
+        [],
+        [
+          {
+            "node": "Call 'work_flow_metadata'",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "When Executed by Another Workflow": {
+      "main": [
+        [
+          {
+            "node": "Code in JavaScript",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Convert to File1": {
+      "main": [
+        [
+          {
+            "node": "Read/Write Files from Disk2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ollama Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "AI Agent1",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Call 'work_flow_metadata'": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Items1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code in JavaScript": {
+      "main": [
+        [
+          {
+            "node": "Read/Write Files from Disk",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code in JavaScript3": {
+      "main": [
+        [
+          {
+            "node": "AI Agent1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "98a22b55-91d8-4e4b-b22e-0b6aaa0686c0",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "558d88703fb65b2d0e44613bc35916258b0f0bf983c5d4730c00c424b77ca36a"
+  },
+  "id": "EunhwBT4sdKvtgZF",
+  "tags": []
+}

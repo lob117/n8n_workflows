@@ -1,0 +1,700 @@
+{
+  "name": "work_flow_meta",
+  "nodes": [
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        -208,
+        128
+      ],
+      "id": "059e438c-2e83-4f75-be15-1dbf64162359",
+      "name": "When clicking ‘Execute workflow’"
+    },
+    {
+      "parameters": {
+        "command": "find /demo-data/archivos_faltantes_ -type f -name \"*.pdf\""
+      },
+      "type": "n8n-nodes-base.executeCommand",
+      "typeVersion": 1,
+      "position": [
+        -32,
+        128
+      ],
+      "id": "280103dc-b6cb-4e27-a0e5-56d7f47a65af",
+      "name": "Execute Command"
+    },
+    {
+      "parameters": {
+        "jsCode": "return $input.all().map(item => {\n  const numpages = item.json.numpages;\n  const path = item.json.info.Custom.Custom_Path;\n\n  // Extraer el último segmento del path (nombre del archivo)\n  const fileName = path.split('/').pop() || \"\";\n\n  // Quitar extensión .pdf, eliminar solo los paréntesis y limpiar espacios\n  const cleanTitle = fileName\n    .replace(/\\.pdf$/i, '')    // elimina .pdf al final\n    .replace(/[()]/g, '')      // elimina solo los paréntesis pero deja el contenido\n    .replace(/\\s+/g, ' ')      // limpia espacios múltiples\n    .trim();\n\n  // Limpiar texto: quitar saltos de línea y espacios de más\n  const text = item.json.text\n    ?.replace(/\\n/g, ' ')\n    .replace(/\\s+/g, ' ')\n    .trim();\n\n  return {\n    Title: cleanTitle,\n    Path: path,\n    numpages: numpages,\n    Text: text\n  };\n});\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1552,
+        208
+      ],
+      "id": "11d9b682-84fa-41ef-b84e-5c7dbb2f1e6a",
+      "name": "Code in JavaScript"
+    },
+    {
+      "parameters": {
+        "jsCode": "const text = $json[\"Text\"] || \"\";\nconst chunkSize = 2000;     // tamaño de cada chunk\nconst overlap = 200;        // solapamiento entre chunks\nconst title = $input.first().json.Title;   // obtenemos el título\n\nlet chunks = [];\n\nif (text.trim().length === 0) {\n  // Si no hay texto, devolvemos un único chunk con \"imagen\"\n  chunks.push({ chunk: `Title: ${title}\\n\\nimagen` });\n} else {\n  for (let i = 0; i < text.length; i += (chunkSize - overlap)) {\n    let chunk = text.slice(i, i + chunkSize);\n\n    // si es el primer chunk, le añadimos el título\n    if (i === 0) {\n      chunk = `Title: ${title}\\n\\n${chunk}`;\n    }\n\n    chunks.push({ chunk });\n  }\n}\n\nreturn chunks.map(c => ({ json: c }));\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1728,
+        208
+      ],
+      "id": "117e8475-ca08-4902-8958-e6cb9c4a41e8",
+      "name": "Code in JavaScript2"
+    },
+    {
+      "parameters": {
+        "jsCode": "const text = $json[\"stdout\"] || \"\";\n\n// Dividir por saltos de línea y limpiar espacios vacíos\nconst lines = text\n  .split('\\n')\n  .map(line => line.trim())\n  .filter(line => line !== \"\");\n\n// Convertir cada línea en un chunk\nconst chunks = lines.map(line => ({ chunk: line }));\n\n// Retornar en formato que n8n espera\nreturn chunks.map(c => ({ json: c }));\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        112,
+        128
+      ],
+      "id": "2f40dac3-2315-4df2-9a2b-2cfd220da583",
+      "name": "Code in JavaScript1"
+    },
+    {
+      "parameters": {
+        "operation": "pdf",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.extractFromFile",
+      "typeVersion": 1,
+      "position": [
+        1376,
+        208
+      ],
+      "id": "db291860-bb87-4926-9ae7-eb10c78ac31e",
+      "name": "Extract from File1"
+    },
+    {
+      "parameters": {
+        "fileSelector": "={{ $json.chunk }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.readWriteFile",
+      "typeVersion": 1,
+      "position": [
+        1184,
+        208
+      ],
+      "id": "0d8d770c-f2dc-4e6f-9265-4c8a49b43b7b",
+      "name": "Read/Write Files from Disk"
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        2016,
+        208
+      ],
+      "id": "9b8d18eb-46e0-4007-97d2-d8c2ab7ab0fc",
+      "name": "Loop Over Items",
+      "alwaysOutputData": false
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=Analiza el siguiente fragmento de un documento PDF y si no tiene coherencia ni informacion manda un chunck:\n\n{{$json[\"chunk\"]}}\n\nTareas:\n1. Haz un resumen claro y coherente del contenido sinedo importante nombres y integrando los títulos dentro del texto como parte natural de la redacción.\n2. Si existen TABLAS o GRÁFICAS, guarda sus nombres exactos en listas separadas.\n3. No inventes información: si no se encuentran tablas o gráficas, indícalo claramente.\n\nFormato de salida esperado:\n- Resumen: [texto redactado con títulos incluidos en coherencia]\n- Tablas encontradas: [nombres o \"ninguna\"]\n- Gráficas encontradas: [nombres o \"ninguna\"]\n",
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 2.2,
+      "position": [
+        2320,
+        224
+      ],
+      "id": "865c0309-ae4e-47b8-99eb-16f8d22f04ea",
+      "name": "AI Agent1"
+    },
+    {
+      "parameters": {
+        "model": "mistral:latest",
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatOllama",
+      "typeVersion": 1,
+      "position": [
+        2320,
+        384
+      ],
+      "id": "d01d73e5-627c-48d4-9b48-5a8aac663a2f",
+      "name": "Ollama Chat Model",
+      "credentials": {
+        "ollamaApi": {
+          "id": "xHuYe0MDGOs9IpBW",
+          "name": "Local Ollama service"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.output }}",
+                    "rightValue": "a",
+                    "operator": {
+                      "type": "string",
+                      "operation": "notEquals"
+                    },
+                    "id": "dc0237f2-5a6b-4cbc-a25b-548d8a6dd89c"
+                  }
+                ],
+                "combinator": "and"
+              }
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "c0cbee2f-017e-49f7-9fec-bdc486a1fc48",
+                    "leftValue": "={{ $json.output }}",
+                    "rightValue": "a",
+                    "operator": {
+                      "type": "string",
+                      "operation": "notEquals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              }
+            }
+          ]
+        },
+        "options": {
+          "allMatchingOutputs": true
+        }
+      },
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.3,
+      "position": [
+        1472,
+        464
+      ],
+      "id": "cb617a8b-9f6a-458a-98c9-159fd764f51e",
+      "name": "Switch"
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $input.all();\n\n// Procesamos cada resumen\nconst merged = items.map((item, index) => {\n  // Limpiar saltos de línea y espacios extra\n  const cleanText = item.json.output.replace(/\\n+/g, ' ').trim();\n  \n  return `Resumen ${index + 1}: ${cleanText}`;\n});\n\n// Unimos todo en un solo texto\nconst finalText = merged.join(\"\\n\\n\");\n\n// Extraemos datos de otra etapa\nconst title = $('Code in JavaScript').first().json.Title;\nconst customPath =$('Code in JavaScript').first().json.Path;\nconst num_p=  $('Code in JavaScript').first().json.numpages;\n\nreturn [{\n  json: {\n    Title: title,\n    CustomPath: customPath,\n    numPage:num_p,\n    mergedSummaries: finalText\n  }\n}];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1280,
+        464
+      ],
+      "id": "ade9cb35-886f-49f9-ab23-1f608dad8ac4",
+      "name": "Code in JavaScript4"
+    },
+    {
+      "parameters": {
+        "command": "=cp {{$binary.data.filePath}}  /demo-data/{{ $('Code in JavaScript3').first().json.fileTitle }}.txt\n\n"
+      },
+      "type": "n8n-nodes-base.executeCommand",
+      "typeVersion": 1,
+      "position": [
+        2784,
+        544
+      ],
+      "id": "002541fa-5985-4463-be10-99554dda03ce",
+      "name": "Execute Command1"
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $input.all();\n\nreturn items.map(item => {\n  const customPath = item.json.CustomPath;\n  const summaries = item.json.mergedSummaries;\n  const title = item.json.Title;\n  const numpage = item.json.numPage;\n\n  // Reemplazar espacios en el título por \"_\"\n  const cleanTitle = title?.replace(/\\s+/g, '_');\n\n  // Unimos en un solo texto\n  const mergedText = `${customPath}\\n\\n${summaries}`;\n\n  return {\n    json: {\n      fileText: mergedText,\n      fileTitle: cleanTitle\n    }\n  };\n});\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1696,
+        448
+      ],
+      "id": "e2664847-0654-44d8-a8b9-b8192a63bcdc",
+      "name": "Code in JavaScript3"
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=Eres un agente de IA especializado en la síntesis y resumen de documentos técnicos. Tu tarea es analizar el siguiente texto y generar un resumen claro en español y conciso que extraiga la información más relevante sin redundancias.\nel siguiente texto {{ $json.mergedSummaries }}\n\nasegúrate de identificar y destacar claramente los siguientes puntos:\n1.La idea principal del documento.\n2.Los nombres de todas las empresas o personas involucradas.\n3. busca Las localidades específicas mencionadas relacionadas como ciudades, departamentos o locaciones.\n4.de que tratan los permisos  de la licencia otorga o modifica.\nSigue estas reglas estrictamente:\n\nEl resumen no debe exceder los 3000 caracteres.\n\nIdentifica si el texto menciona tablas o gráficas. Si las encuentras, lista sus nombres exactos.\n\nSi no hay tablas o gráficas, indícalo explícitamente escribiendo \"ninguna\". No inventes información.\n\nPresenta tu respuesta final utilizando exactamente el siguiente formato, sin añadir texto introductorio o de cierre:\n\nResumen: [Aquí va tu resumen detallado]\nTablas encontradas: [Lista de nombres o la palabra \"ninguna\"]\nGráficas encontradas: [Lista de nombres o la palabra \"ninguna\"]\n\n\n",
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 2.2,
+      "position": [
+        1872,
+        624
+      ],
+      "id": "7126f43c-9267-48d6-a4ae-0cc32f9880a6",
+      "name": "AI Agent"
+    },
+    {
+      "parameters": {
+        "model": "mistral:7b-instruct-v0.2-q6_K",
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatOllama",
+      "typeVersion": 1,
+      "position": [
+        1872,
+        800
+      ],
+      "id": "fed308f6-27c6-4533-a8ac-15bf2e9526b6",
+      "name": "Ollama Chat Model1",
+      "credentials": {
+        "ollamaApi": {
+          "id": "xHuYe0MDGOs9IpBW",
+          "name": "Local Ollama service"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "command": "=cat <<'EOF' > \"/demo-data/{{ $json.fileTitle }}.json\"\n{{ JSON.stringify($json.metadata, null, 2) }}\nEOF\n"
+      },
+      "type": "n8n-nodes-base.executeCommand",
+      "typeVersion": 1,
+      "position": [
+        2848,
+        720
+      ],
+      "id": "a686a433-c179-4f6b-9afb-a5ee85462753",
+      "name": "Execute Command2"
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $input.all();\n\nreturn items.map(item => {\n  const customPath = $('Code in JavaScript4').first().json.CustomPath;\n  const summaries = item.json.output;\n  const title = $('Code in JavaScript4').first().json.Title;\n  const numpage = $('Code in JavaScript4').first().json.numPage;\n\n  // Reemplazar espacios en el título por \"_\"\n  const cleanTitle = title?.replace(/\\s+/g, '_');\n\n\n\n  return {\n    json: {\n      fileTitle: cleanTitle,\n      metadata: {\n        title:cleanTitle,\n        resum: summaries,\n        customPath: customPath,\n        numpage: numpage\n      }\n    }\n  };\n});\n\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2160,
+        624
+      ],
+      "id": "a1c523bf-8a51-47ce-8e8d-9203bb5176a2",
+      "name": "Code in JavaScript5"
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        320,
+        128
+      ],
+      "id": "350acc76-49d6-4d29-a356-3e7c8cc728d0",
+      "name": "Loop Over Items1"
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "VQNGuWpfJT9D3z9R",
+          "mode": "list",
+          "cachedResultUrl": "/workflow/VQNGuWpfJT9D3z9R",
+          "cachedResultName": "work_flow_meta"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {},
+          "matchingColumns": [],
+          "schema": [],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        },
+        "mode": "each",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.3,
+      "position": [
+        512,
+        144
+      ],
+      "id": "82200e9f-6c39-44e5-af6e-d17331c60624",
+      "name": "Call 'work_flow_meta'"
+    },
+    {
+      "parameters": {
+        "inputSource": "passthrough"
+      },
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        896,
+        208
+      ],
+      "id": "7050e53e-6d52-46f1-a927-642161bc12f1",
+      "name": "When Executed by Another Workflow"
+    },
+    {
+      "parameters": {
+        "operation": "toJson",
+        "options": {
+          "fileName": "={{ $json.fileTitle }}.json"
+        }
+      },
+      "type": "n8n-nodes-base.convertToFile",
+      "typeVersion": 1.1,
+      "position": [
+        1840,
+        448
+      ],
+      "id": "2a103997-da17-4c44-ae86-605e6447ab85",
+      "name": "Convert to File"
+    },
+    {
+      "parameters": {
+        "operation": "write",
+        "fileName": "=/demo-data/{{ $('Code in JavaScript3').first().json.fileTitle }}.txt",
+        "dataPropertyName": "=data",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.readWriteFile",
+      "typeVersion": 1,
+      "position": [
+        1984,
+        448
+      ],
+      "id": "6299c081-2656-41f4-a2d8-633af931b321",
+      "name": "Read/Write Files from Disk1"
+    },
+    {
+      "parameters": {
+        "operation": "toJson",
+        "options": {
+          "fileName": "={{ $json.fileTitle }}.json"
+        }
+      },
+      "type": "n8n-nodes-base.convertToFile",
+      "typeVersion": 1.1,
+      "position": [
+        2320,
+        624
+      ],
+      "id": "d2edf6a0-4385-479d-8013-76f9f668d538",
+      "name": "Convert to File1"
+    },
+    {
+      "parameters": {
+        "operation": "write",
+        "fileName": "=/demo-data/{{ $('Code in JavaScript').first().json.fileTitle }}.json",
+        "dataPropertyName": "=data",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.readWriteFile",
+      "typeVersion": 1,
+      "position": [
+        2496,
+        624
+      ],
+      "id": "f857326e-b383-4327-bb7b-f59639cb8f64",
+      "name": "Read/Write Files from Disk2"
+    }
+  ],
+  "pinData": {
+    "When Executed by Another Workflow": [
+      {
+        "json": {
+          "chunk": "/demo-data/data_ocr/ruta/Mapa_010_Biogas_trimestre3-2017.qgs.pdf"
+        }
+      }
+    ]
+  },
+  "connections": {
+    "When clicking ‘Execute workflow’": {
+      "main": [
+        [
+          {
+            "node": "Execute Command",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Execute Command": {
+      "main": [
+        [
+          {
+            "node": "Code in JavaScript1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code in JavaScript": {
+      "main": [
+        [
+          {
+            "node": "Code in JavaScript2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code in JavaScript2": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Items",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code in JavaScript1": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Items1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract from File1": {
+      "main": [
+        [
+          {
+            "node": "Code in JavaScript",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read/Write Files from Disk": {
+      "main": [
+        [
+          {
+            "node": "Extract from File1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Loop Over Items": {
+      "main": [
+        [
+          {
+            "node": "Code in JavaScript4",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "AI Agent1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Agent1": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Items",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ollama Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "AI Agent1",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Switch": {
+      "main": [
+        [
+          {
+            "node": "Code in JavaScript3",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "AI Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code in JavaScript4": {
+      "main": [
+        [
+          {
+            "node": "Switch",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code in JavaScript3": {
+      "main": [
+        [
+          {
+            "node": "Convert to File",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Agent": {
+      "main": [
+        [
+          {
+            "node": "Code in JavaScript5",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ollama Chat Model1": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code in JavaScript5": {
+      "main": [
+        [
+          {
+            "node": "Convert to File1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Execute Command2": {
+      "main": [
+        []
+      ]
+    },
+    "Loop Over Items1": {
+      "main": [
+        [],
+        [
+          {
+            "node": "Call 'work_flow_meta'",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Call 'work_flow_meta'": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Items1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "When Executed by Another Workflow": {
+      "main": [
+        [
+          {
+            "node": "Read/Write Files from Disk",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Convert to File": {
+      "main": [
+        [
+          {
+            "node": "Read/Write Files from Disk1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Convert to File1": {
+      "main": [
+        [
+          {
+            "node": "Read/Write Files from Disk2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "5c072464-28f9-4b9f-82ee-4ec7dcf189a7",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "558d88703fb65b2d0e44613bc35916258b0f0bf983c5d4730c00c424b77ca36a"
+  },
+  "id": "VQNGuWpfJT9D3z9R",
+  "tags": []
+}
