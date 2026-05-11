@@ -1,8 +1,9 @@
 # n8n_workflows
 repository contains a specialized n8n workflow designed to automate the extraction of metadata from various file formats. It provides a scalable solution for processing documents, images, or media files and converting their embedded properties into structured JSON data.
 
-Automated PDF Metadata Extraction with n8n and Local AI
-Este repositorio contiene un flujo de trabajo avanzado de n8n diseñado para escanear directorios, extraer texto de documentos PDF y generar metadatos estructurados mediante modelos de lenguaje (LLM) ejecutados localmente.
+# n8n Document AI Suite: De Scripts Locales a API Service
+
+Este repositorio contiene una suite de flujos de trabajo de n8n para la gestión inteligente de documentos PDF utilizando modelos de IA locales (Ollama).
 
 🛠️ Requisitos Previos e Instalación del Entorno
 Para asegurar el correcto funcionamiento de este flujo, es imperativo configurar el entorno en el siguiente orden:
@@ -26,21 +27,42 @@ Repositorio: n8n-io/self-hosted-ai-starter-kit
 
 Este kit levanta automáticamente mediante Docker las instancias de n8n, Ollama (para la IA local) y la base de datos necesaria.
 
-🚀 Desarrollo del Workflow
-Una vez que el entorno de Docker y el Starter Kit estén operativos, se procede a la implementación del flujo de extracción de metadatos contenido en este repositorio.
 
-Lógica del Sistema
-Exploración de Archivos: El flujo utiliza comandos de sistema (find) dentro del contenedor Linux para localizar archivos .pdf de forma recursiva.
 
-Extracción de Contenido: Se procesa el binario del PDF para convertirlo en texto legible.
+## 📂 Flujos de Trabajo Incluidos
 
-Procesamiento de IA (Ollama): Se envía el texto al modelo llama3.1:8b para identificar campos clave como números de expediente, resúmenes de proyectos y ubicaciones geográficas.
+### 1. Extractor de Expedientes (Búsqueda Local)
+**Archivo:** `work_flow_metadata_busqueda.json`
+* **Función:** Escanea directorios mediante comandos `find` y extrae metadatos específicos (números de expediente, fechas).
+* **Modelo:** Llama 3.1.
 
-Validación y Limpieza: Mediante nodos de JavaScript, se asegura que la respuesta de la IA sea un JSON válido y se corrigen posibles errores de formato antes de guardar el resultado.
+### 2. Sintetizador de Documentos Largos (Recursivo)
+**Archivo:** `work_flow_meta.json`
+* **Función:** Procesa PDFs extensos dividiéndolos en fragmentos (chunks) con solapamiento para no perder contexto.
+* **Modelo:** Mistral (vía Ollama).
+* **Especialidad:** Identificación de tablas y gráficas.
 
-📥 Importación del Flujo
-Descarga el archivo work_flow_metadata_busqueda.json de este repositorio.
+### 3. API de Procesamiento bajo Demanda (Webhook)
+**Archivo:** `work_hook_api.json`
+* **Función:** Transforma n8n en un endpoint de API. Recibe una ruta de archivo y devuelve el análisis.
+* **Endpoint:** `POST /webhook/process-pdf`
+* **Cuerpo esperado (JSON):**
+    ```json
+    {
+      "pdfPath": "/demo-data/mi_archivo.pdf"
+    }
+    ```
+* **Respuesta:** Retorna un JSON con el estado del procesamiento y la ubicación del resultado final.
 
-En tu instancia de n8n, selecciona Import from File.
+---
 
-Configura tus credenciales de Ollama (usualmente apuntando a http://host.docker.internal:11434 o la IP de tu contenedor).
+## 🔧 Configuración de los Workflows
+
+1.  **Importación:** Importe los archivos `.json` en su instancia de n8n.
+2.  **Credenciales:** Configure el nodo de **Ollama** con la URL `http://host.docker.internal:11434`.
+3.  **Rutas de Archivo:** Asegúrese de que los volúmenes de Docker en su `docker-compose.yaml` coincidan con la ruta `/demo-data/` utilizada en los nodos.
+
+## 🧠 Características Técnicas Destacadas
+* **Chunking Semántico:** Fragmentación de 2000 caracteres con 200 de solapamiento para mantener la coherencia.
+* **Validación de JSON:** Lógica en JavaScript para asegurar que las respuestas de la IA sean parseables.
+* **Consolidación de Contexto:** Uso de memoria interna en bucles para síntesis multietapa.
