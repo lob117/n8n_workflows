@@ -1,0 +1,235 @@
+{
+  "name": "PDF_Processor_Webhook",
+  "nodes": [
+    {
+      "parameters": {
+        "path": "process-pdf",
+        "responseMode": "lastNode",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [0, 0],
+      "webhookId": "process-pdf-webhook",
+      "name": "Webhook - Receive PDF"
+    },
+    {
+      "parameters": {
+        "fileSelector": "={{ $json.body.pdfPath }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.readWriteFile",
+      "typeVersion": 1,
+      "position": [200, 0],
+      "name": "Read PDF"
+    },
+    {
+      "parameters": {
+        "operation": "pdf",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.extractFromFile",
+      "typeVersion": 1,
+      "position": [400, 0],
+      "name": "Extract Text"
+    },
+    {
+      "parameters": {
+        "jsCode": "return $input.all().map(item => {\n  const numpages = item.json.numpages;\n  const Title = item.json.info.Title;\n  const Path = $('Webhook - Receive PDF').first().json.body.pdfPath;\n\n  const Text = item.json.text\n    ?.replace(/\\n/g, ' ')\n    .replace(/\\s+/g, ' ')\n    .trim();\n\n  return {\n    Title: Title || 'Sin título',\n    Path: Path,\n    numpages: numpages,\n    Text: Text\n  };\n});"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [600, 0],
+      "name": "Clean Data"
+    },
+    {
+      "parameters": {
+        "jsCode": "const text = $json[\"Text\"] || \"\";\nconst chunkSize = 2000;\nconst overlap = 200;\nconst title = $json.Title;\n\nlet chunks = [];\n\nfor (let i = 0; i < text.length; i += (chunkSize - overlap)) {\n  let chunk = text.slice(i, i + chunkSize);\n\n  if (i === 0) {\n    chunk = `Title: ${title}\\n\\n${chunk}`;\n  }\n\n  chunks.push({ \n    chunk: chunk,\n    chunkIndex: chunks.length,\n    totalChunks: Math.ceil(text.length / (chunkSize - overlap))\n  });\n}\n\nreturn chunks.map(c => ({ json: c }));"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [800, 0],
+      "name": "Create Chunks"
+    },
+    {
+      "parameters": {
+        "options": {
+          "batchSize": 1,
+          "reset": true
+        }
+      },
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [1000, 0],
+      "name": "Loop Over Chunks"
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=Analiza el siguiente fragmento ({{ $json.chunkIndex + 1 }} de {{ $json.totalChunks }}):\n\n{{$json.chunk}}\n\nTareas:\n1. Haz un resumen claro y coherente del contenido.\n2. Si existen TABLAS o GRÁFICAS, guarda sus nombres exactos.\n3. No inventes información.\n\nFormato:\n- Resumen: [texto]\n- Tablas encontradas: [nombres o \"ninguna\"]\n- Gráficas encontradas: [nombres o \"ninguna\"]",
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 2.2,
+      "position": [1200, 0],
+      "name": "AI Agent - Process Chunk"
+    },
+    {
+      "parameters": {
+        "model": "mistral:latest",
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatOllama",
+      "typeVersion": 1,
+      "position": [1200, 200],
+      "name": "Ollama Model",
+      "credentials": {
+        "ollamaApi": {
+          "id": "xHuYe0MDGOs9IpBW",
+          "name": "Local Ollama service"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Guardar el resultado del chunk procesado\nconst chunkResult = $json.output;\nconst chunkIndex = $('Loop Over Chunks').item.json.chunkIndex;\n\n// Obtener resultados previos o inicializar\nlet allResults = $('Loop Over Chunks').context?.summaries || [];\n\nallResults.push({\n  index: chunkIndex,\n  summary: chunkResult\n});\n\n// Guardar en contexto\n$('Loop Over Chunks').context = { summaries: allResults };\n\nreturn [{ json: { processed: true, chunkIndex: chunkIndex } }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1400, 0],
+      "name": "Store Result"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Consolidar todos los resúmenes\nconst allSummaries = $('Loop Over Chunks').context?.summaries || [];\n\n// Ordenar por índice\nallSummaries.sort((a, b) => a.index - b.index);\n\n// Crear texto final\nconst merged = allSummaries.map((item, idx) => \n  `Resumen ${idx + 1}: ${item.summary}`\n).join(\"\\n\\n\");\n\nconst title = $('Clean Data').first().json.Title;\nconst customPath = $('Clean Data').first().json.Path;\nconst numPages = $('Clean Data').first().json.numpages;\n\nreturn [{\n  json: {\n    Title: title,\n    CustomPath: customPath,\n    numPage: numPages,\n    mergedSummaries: merged\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1600, 0],
+      "name": "Consolidate Summaries"
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=Eres un agente especializado en síntesis de documentos técnicos.\n\nAnaliza este texto:\n{{ $json.mergedSummaries }}\n\nIdentifica:\n1. Idea principal\n2. Empresas/personas involucradas\n3. Localidades mencionadas\n4. Permisos/licencias otorgadas\n\nReglas:\n- Máximo 3000 caracteres\n- Identifica tablas y gráficas (si no hay, indica \"ninguna\")\n\nFormato:\nResumen: [texto]\nTablas encontradas: [nombres o \"ninguna\"]\nGráficas encontradas: [nombres o \"ninguna\"]",
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 2.2,
+      "position": [1800, 0],
+      "name": "AI Agent - Final Summary"
+    },
+    {
+      "parameters": {
+        "model": "mistral:7b-instruct-v0.2-q6_K",
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatOllama",
+      "typeVersion": 1,
+      "position": [1800, 200],
+      "name": "Ollama Model Final",
+      "credentials": {
+        "ollamaApi": {
+          "id": "xHuYe0MDGOs9IpBW",
+          "name": "Local Ollama service"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const customPath = $('Consolidate Summaries').first().json.CustomPath;\nconst summaries = $json.output;\nconst title = $('Consolidate Summaries').first().json.Title;\nconst numpage = $('Consolidate Summaries').first().json.numPage;\n\nconst cleanTitle = title?.replace(/\\s+/g, '_');\nconst numPageText = `numero de paginas: ${numpage}`;\nconst mergedText = `${customPath}\\n\\n${summaries}\\n\\n${numPageText}`;\n\nreturn [{\n  json: {\n    fileText: mergedText,\n    fileTitle: cleanTitle,\n    originalPath: customPath\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2000, 0],
+      "name": "Prepare Output"
+    },
+    {
+      "parameters": {
+        "command": "=echo \"{{ $json.fileText }}\" > /demo-data/{{ $json.fileTitle }}.json"
+      },
+      "type": "n8n-nodes-base.executeCommand",
+      "typeVersion": 1,
+      "position": [2200, 0],
+      "name": "Save File"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Respuesta del webhook\nreturn [{\n  json: {\n    status: 'success',\n    title: $('Prepare Output').first().json.fileTitle,\n    path: $('Prepare Output').first().json.originalPath,\n    numpages: $('Consolidate Summaries').first().json.numPage,\n    savedFile: `/demo-data/${$('Prepare Output').first().json.fileTitle}.json`,\n    processedAt: new Date().toISOString()\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2400, 0],
+      "name": "Webhook Response"
+    }
+  ],
+  "connections": {
+    "Webhook - Receive PDF": {
+      "main": [[{ "node": "Read PDF", "type": "main", "index": 0 }]]
+    },
+    "Read PDF": {
+      "main": [[{ "node": "Extract Text", "type": "main", "index": 0 }]]
+    },
+    "Extract Text": {
+      "main": [[{ "node": "Clean Data", "type": "main", "index": 0 }]]
+    },
+    "Clean Data": {
+      "main": [[{ "node": "Create Chunks", "type": "main", "index": 0 }]]
+    },
+    "Create Chunks": {
+      "main": [[{ "node": "Loop Over Chunks", "type": "main", "index": 0 }]]
+    },
+    "Loop Over Chunks": {
+      "main": [
+        [{ "node": "Consolidate Summaries", "type": "main", "index": 0 }],
+        [{ "node": "AI Agent - Process Chunk", "type": "main", "index": 0 }]
+      ]
+    },
+    "AI Agent - Process Chunk": {
+      "main": [[{ "node": "Store Result", "type": "main", "index": 0 }]]
+    },
+    "Ollama Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "AI Agent - Process Chunk",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Store Result": {
+      "main": [[{ "node": "Loop Over Chunks", "type": "main", "index": 0 }]]
+    },
+    "Consolidate Summaries": {
+      "main": [
+        [{ "node": "AI Agent - Final Summary", "type": "main", "index": 0 }]
+      ]
+    },
+    "AI Agent - Final Summary": {
+      "main": [[{ "node": "Prepare Output", "type": "main", "index": 0 }]]
+    },
+    "Ollama Model Final": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "AI Agent - Final Summary",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Output": {
+      "main": [[{ "node": "Save File", "type": "main", "index": 0 }]]
+    },
+    "Save File": {
+      "main": [[{ "node": "Webhook Response", "type": "main", "index": 0 }]]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  }
+}
